@@ -21,4 +21,10 @@ pid_t pid,DAVID;
  }
  exit(0);
 }
-
+/*
+	ARBOL DE PROCESOS
+	
+	1000
+	  |
+	1001
+*/
