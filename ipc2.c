@@ -42,7 +42,7 @@ void main(){
                 printf("El padre escribe en el PIPE...\n");
                 char numeros[] = "251867+";
                
-                write(fd[1], numeros, 30);
+                write(fd[1], numeros, sizeof(numeros));
                  
                 wait(NULL);    
      }
