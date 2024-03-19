@@ -1,0 +1,62 @@
+package PaqueteLogin;
+
+import java.sql.Connection;
+import java.sql.DriverManager;
+import java.sql.PreparedStatement;
+import java.sql.SQLException;
+
+public class ConexionBD {
+    private static String url = "jdbc:sqlserver://localhost:1433;databaseName=APP;user=sb;password=Sanjose03*;";
+    private static String driver = "com.microsoft.sqlserver.jdbc.SQLServerDriver";
+    private static Connection cn;
+
+    public static Connection getConnection() {
+        try {
+            Class.forName(driver);
+            //System.out.println("Llega");
+            cn = DriverManager.getConnection(url);
+           
+            return cn;
+        } catch (ClassNotFoundException | SQLException e) {
+            e.printStackTrace();
+            return null;
+        }
+    }
+    
+    public static void eliminarUsuario(String usuario,String contrasena) throws SQLException
+    {
+        String query="UPDATE Usuarios SET user_name= '"+ usuario +"' AND password= '"+ contrasena +"' AND borrado = '"+ true;
+
+
+         Connection conn = DriverManager.getConnection(url);
+         PreparedStatement pstmt = conn.prepareStatement(query);
+         
+         pstmt.executeUpdate();
+         
+        
+    }
+    public static void insertarUsuario(String usuario,String contrasena) throws SQLException
+    {
+    	Connection con = ConexionBD.getConnection();
+        String query="INSERT INTO USUARIOS (user_name, password, borrado) values (?, ?, ?)";
+
+
+         Connection conn = DriverManager.getConnection(url);
+         PreparedStatement ps = con.prepareStatement(query);
+
+         ps.setString(1, usuario);
+         ps.setString(2, contrasena);
+         ps.setString(3, null);
+         ps.executeUpdate();
+    	
+    }
+    public static void main(String[] args) {
+        Connection pruebacn = ConexionBD.getConnection();
+        if (pruebacn != null) {
+            System.out.println("Conexión realizada con éxito");
+            System.out.println(pruebacn);
+        } else {
+            System.out.println("Desconectado");
+        }
+    }
+}
