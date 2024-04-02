@@ -1,0 +1,141 @@
+Codename03@
+
+public class LoginUsuarios extends AppCompatActivity {
+
+    private EditText textFieldUser;
+    private EditText textFieldCon;
+    private SQLiteDatabase mDatabase;
+
+    @Override
+    protected void onCreate(Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+        setContentView(R.layout.activity_login_usuarios);
+
+        textFieldUser = findViewById(R.id.editTextUser);
+        textFieldCon = findViewById(R.id.editTextCon);
+
+        // Inicializar la base de datos SQLite
+        DBHelper dbHelper = new DBHelper(this);
+        mDatabase = dbHelper.getWritableDatabase();
+    }
+
+    public void onClickCrearUsuario(View view) {
+        String user = textFieldUser.getText().toString().trim();
+        String pass = textFieldCon.getText().toString().trim();
+
+        if (user.isEmpty() || pass.isEmpty()) {
+            Toast.makeText(this, "Por favor, completa todos los campos", Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        // Verificar si el usuario ya existe
+        if (usuarioExistente(user)) {
+            Toast.makeText(this, "El usuario ya existe", Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        // Insertar el nuevo usuario en la base de datos
+        insertarUsuario(user, pass);
+        Toast.makeText(this, "Usuario creado exitosamente", Toast.LENGTH_SHORT).show();
+    }
+
+    public void onClickBorrarUsuario(View view) {
+        String user = textFieldUser.getText().toString().trim();
+
+        // Verificar si el usuario existe
+        if (!usuarioExistente(user)) {
+            Toast.makeText(this, "El usuario no existe", Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        // Eliminar el usuario de la base de datos
+        eliminarUsuario(user);
+        Toast.makeText(this, "Usuario eliminado exitosamente", Toast.LENGTH_SHORT).show();
+    }
+
+    private boolean usuarioExistente(String user) {
+        String query = "SELECT * FROM usuarios WHERE username = ?";
+        Cursor cursor = mDatabase.rawQuery(query, new String[]{user});
+        boolean exists = cursor.getCount() > 0;
+        cursor.close();
+        return exists;
+    }
+
+    private void insertarUsuario(String user, String pass) {
+        ContentValues cv = new ContentValues();
+        cv.put("username", user);
+        cv.put("password", pass);
+        mDatabase.insert("usuarios", null, cv);
+    }
+
+    private void eliminarUsuario(String user) {
+        mDatabase.delete("usuarios", "username = ?", new String[]{user});
+    }
+}
+
+public class LoginUsuarios extends AppCompatActivity {
+
+    private EditText textFieldUser;
+    private EditText textFieldCon;
+    private SQLiteDatabase mDatabase;
+
+    @Override
+    protected void onCreate(Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+        setContentView(R.layout.activity_login_usuarios);
+
+        textFieldUser = findViewById(R.id.editTextUser);
+        textFieldCon = findViewById(R.id.editTextCon);
+
+        // Inicializar la base de datos SQLite
+        DBHelper dbHelper = new DBHelper(this);
+        mDatabase = dbHelper.getWritableDatabase();
+    }
+
+    public void onClickEntrar(View view) {
+        String user = textFieldUser.getText().toString().trim();
+        String pass = textFieldCon.getText().toString().trim();
+
+        // Validar si el usuario y la contraseña son correctos
+        if (validarCredenciales(user, pass)) {
+            Toast.makeText(this, "Inicio de sesión exitoso", Toast.LENGTH_SHORT).show();
+            // Aquí puedes abrir la siguiente actividad o realizar alguna otra acción
+        } else {
+            Toast.makeText(this, "Usuario o contraseña incorrectos", Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    public void onClickVerUsuarios(View view) {
+        mostrarUsuarios();
+    }
+
+    private boolean validarCredenciales(String user, String pass) {
+        String query = "SELECT * FROM usuarios WHERE username = ? AND password = ?";
+        Cursor cursor = mDatabase.rawQuery(query, new String[]{user, pass});
+        boolean result = cursor.getCount() > 0;
+        cursor.close();
+        return result;
+    }
+
+    private void mostrarUsuarios() {
+        String query = "SELECT * FROM usuarios";
+        Cursor cursor = mDatabase.rawQuery(query, null);
+
+        StringBuilder usuarios = new StringBuilder();
+        while (cursor.moveToNext()) {
+            String username = cursor.getString(cursor.getColumnIndex("username"));
+            usuarios.append(username).append("\n");
+        }
+        cursor.close();
+
+        // Mostrar los usuarios en un cuadro de diálogo o en un TextView, según tu preferencia
+        AlertDialog.Builder builder = new AlertDialog.Builder(this);
+        builder.setTitle("Usuarios");
+        builder.setMessage(usuarios.toString());
+        builder.setPositiveButton("Aceptar", null);
+        builder.show();
+    }
+}
+
+
+
