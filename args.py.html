@@ -1,0 +1,76 @@
+<html>
+<head>
+<title>args.py</title>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+<style type="text/css">
+.s0 { color: #cf8e6d;}
+.s1 { color: #bcbec4;}
+.s2 { color: #bcbec4;}
+.s3 { color: #2aacb8;}
+.s4 { color: #6aab73;}
+</style>
+</head>
+<body bgcolor="#1e1f22">
+<table CELLSPACING=0 CELLPADDING=5 COLS=1 WIDTH="100%" BGCOLOR="#606060" >
+<tr><td><center>
+<font face="Arial, Helvetica" color="#000000">
+args.py</font>
+</center></td></tr></table>
+<pre><span class="s0">import </span><span class="s1">argparse</span>
+<span class="s0">import </span><span class="s1">requests </span><span class="s0">as </span><span class="s1">rq</span>
+<span class="s0">from </span><span class="s1">requests</span><span class="s2">.</span><span class="s1">auth </span><span class="s0">import </span><span class="s1">HTTPDigestAuth</span>
+<span class="s0">def </span><span class="s1">get_args</span><span class="s2">():</span>
+    <span class="s1">frame_rate </span><span class="s2">= </span><span class="s3">5</span>
+    <span class="s1">telegram_alert </span><span class="s2">= </span><span class="s0">True</span>
+    <span class="s1">fall_model_path </span><span class="s2">= </span><span class="s4">&quot;human_state_classifier/model/HSC.sav&quot;</span>
+    <span class="s1">posenet_model_path </span><span class="s2">= </span><span class="s4">&quot;posenet_mobilenet_v1_100_257x257_multi_kpt_stripped.tflite&quot;</span>
+    <span class="s1">chunk_seconds </span><span class="s2">= </span><span class="s3">3</span>
+    <span class="s1">path_model_header </span><span class="s2">= </span><span class="s4">&quot;human_state_classifier/model/header.txt&quot;</span>
+    <span class="s1">path_cameras </span><span class="s2">= </span><span class="s4">&quot;cameras.conf&quot;</span>
+    <span class="s1">display_video </span><span class="s2">= </span><span class="s0">False</span>
+
+    <span class="s1">parser </span><span class="s2">= </span><span class="s1">argparse</span><span class="s2">.</span><span class="s1">ArgumentParser</span><span class="s2">(</span><span class="s1">description</span><span class="s2">=</span><span class="s4">&quot;Real-Time Fall Detector&quot;</span><span class="s2">,</span>
+                                     <span class="s1">formatter_class</span><span class="s2">=</span><span class="s1">argparse</span><span class="s2">.</span><span class="s1">ArgumentDefaultsHelpFormatter</span><span class="s2">)</span>
+    <span class="s1">parser</span><span class="s2">.</span><span class="s1">add_argument</span><span class="s2">(</span><span class="s4">&quot;-s&quot;</span><span class="s2">, </span><span class="s4">&quot;--chunk_seconds&quot;</span><span class="s2">,</span>
+                        <span class="s1">help</span><span class="s2">=</span><span class="s4">&quot;Seconds for each chunk.&quot;</span><span class="s2">,</span>
+                        <span class="s1">type</span><span class="s2">=</span><span class="s1">int</span><span class="s2">, </span><span class="s1">default</span><span class="s2">=</span><span class="s1">chunk_seconds</span><span class="s2">)</span>
+
+    <span class="s1">parser</span><span class="s2">.</span><span class="s1">add_argument</span><span class="s2">(</span><span class="s4">&quot;-f&quot;</span><span class="s2">, </span><span class="s4">&quot;--frame_rate&quot;</span><span class="s2">,</span>
+                        <span class="s1">help</span><span class="s2">=</span><span class="s4">&quot;Frames per second.&quot;</span><span class="s2">,</span>
+                        <span class="s1">type</span><span class="s2">=</span><span class="s1">int</span><span class="s2">, </span><span class="s1">default</span><span class="s2">=</span><span class="s1">frame_rate</span><span class="s2">)</span>
+
+    <span class="s1">parser</span><span class="s2">.</span><span class="s1">add_argument</span><span class="s2">(</span><span class="s4">&quot;-p&quot;</span><span class="s2">, </span><span class="s4">&quot;--posenet_model_path&quot;</span><span class="s2">,</span>
+                        <span class="s1">help</span><span class="s2">=</span><span class="s4">&quot;Path to the PoseNet model.&quot;</span><span class="s2">,</span>
+                        <span class="s1">type</span><span class="s2">=</span><span class="s1">str</span><span class="s2">, </span><span class="s1">default</span><span class="s2">=</span><span class="s1">posenet_model_path</span><span class="s2">)</span>
+
+    <span class="s1">parser</span><span class="s2">.</span><span class="s1">add_argument</span><span class="s2">(</span><span class="s4">&quot;-m&quot;</span><span class="s2">, </span><span class="s4">&quot;--fall_model_path&quot;</span><span class="s2">,</span>
+                        <span class="s1">help</span><span class="s2">=</span><span class="s4">&quot;Path to the human state classifier model.&quot;</span><span class="s2">,</span>
+                        <span class="s1">type</span><span class="s2">=</span><span class="s1">str</span><span class="s2">, </span><span class="s1">default</span><span class="s2">=</span><span class="s1">fall_model_path</span><span class="s2">)</span>
+
+    <span class="s1">parser</span><span class="s2">.</span><span class="s1">add_argument</span><span class="s2">(</span><span class="s4">&quot;-x&quot;</span><span class="s2">, </span><span class="s4">&quot;--path_model_header&quot;</span><span class="s2">,</span>
+                        <span class="s1">help</span><span class="s2">=</span><span class="s4">&quot;Path to the human state classifier model header.&quot;</span><span class="s2">,</span>
+                        <span class="s1">type</span><span class="s2">=</span><span class="s1">str</span><span class="s2">, </span><span class="s1">default</span><span class="s2">=</span><span class="s1">path_model_header</span><span class="s2">)</span>
+
+    <span class="s1">parser</span><span class="s2">.</span><span class="s1">add_argument</span><span class="s2">(</span><span class="s4">&quot;-c&quot;</span><span class="s2">, </span><span class="s4">&quot;--path_cameras&quot;</span><span class="s2">,</span>
+                        <span class="s1">help</span><span class="s2">=</span><span class="s4">&quot;Path to the configuration file containing the camera urls&quot;</span><span class="s2">,</span>
+                        <span class="s1">type</span><span class="s2">=</span><span class="s1">str</span><span class="s2">, </span><span class="s1">default</span><span class="s2">=</span><span class="s1">path_cameras</span><span class="s2">)</span>
+
+    <span class="s1">parser</span><span class="s2">.</span><span class="s1">add_argument</span><span class="s2">(</span><span class="s4">&quot;-d&quot;</span><span class="s2">, </span><span class="s4">&quot;--display_video&quot;</span><span class="s2">,</span>
+                        <span class="s1">help</span><span class="s2">=</span><span class="s4">&quot;Display videos from cameras&quot;</span><span class="s2">,</span>
+                        <span class="s1">type</span><span class="s2">=</span><span class="s1">bool</span><span class="s2">, </span><span class="s1">default</span><span class="s2">=</span><span class="s1">display_video</span><span class="s2">)</span>
+
+    <span class="s0">return </span><span class="s1">parser</span>
+
+
+<span class="s0">def </span><span class="s1">show_args</span><span class="s2">(</span><span class="s1">args</span><span class="s2">):</span>
+    <span class="s1">print</span><span class="s2">(</span><span class="s4">&quot;Seconds per chunk:&quot;</span><span class="s2">, </span><span class="s1">args</span><span class="s2">.</span><span class="s1">chunk_seconds</span><span class="s2">, </span><span class="s4">&quot;s&quot;</span><span class="s2">)</span>
+    <span class="s1">print</span><span class="s2">(</span><span class="s4">&quot;Frames per second:&quot;</span><span class="s2">, </span><span class="s1">args</span><span class="s2">.</span><span class="s1">frame_rate</span><span class="s2">, </span><span class="s4">&quot;frames&quot;</span><span class="s2">)</span>
+    <span class="s1">print</span><span class="s2">(</span><span class="s4">&quot;Display videos from cameras:&quot;</span><span class="s2">, </span><span class="s1">args</span><span class="s2">.</span><span class="s1">display_video</span><span class="s2">)</span>
+    <span class="s1">print</span><span class="s2">(</span><span class="s4">&quot;Path to human state classifier model: '&quot;</span><span class="s2">, </span><span class="s1">args</span><span class="s2">.</span><span class="s1">fall_model_path</span><span class="s2">, </span><span class="s4">&quot;'&quot;</span><span class="s2">)</span>
+    <span class="s1">print</span><span class="s2">(</span><span class="s4">&quot;Path to PoseNEt model: '&quot;</span><span class="s2">, </span><span class="s1">args</span><span class="s2">.</span><span class="s1">posenet_model_path</span><span class="s2">, </span><span class="s4">&quot;'&quot;</span><span class="s2">)</span>
+    <span class="s1">print</span><span class="s2">(</span><span class="s4">&quot;Path to the configuration file containing the camera urls: '&quot;</span><span class="s2">, </span><span class="s1">args</span><span class="s2">.</span><span class="s1">path_cameras</span><span class="s2">, </span><span class="s4">&quot;'&quot;</span><span class="s2">)</span>
+
+
+</pre>
+</body>
+</html>
