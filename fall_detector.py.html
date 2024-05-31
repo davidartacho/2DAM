@@ -1,0 +1,270 @@
+<html>
+<head>
+<title>fall_detector.py</title>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+<style type="text/css">
+.s0 { color: #cf8e6d;}
+.s1 { color: #bcbec4;}
+.s2 { color: #bcbec4;}
+.s3 { color: #6aab73;}
+.s4 { color: #7a7e85;}
+.s5 { color: #2aacb8;}
+</style>
+</head>
+<body bgcolor="#1e1f22">
+<table CELLSPACING=0 CELLPADDING=5 COLS=1 WIDTH="100%" BGCOLOR="#606060" >
+<tr><td><center>
+<font face="Arial, Helvetica" color="#000000">
+fall_detector.py</font>
+</center></td></tr></table>
+<pre><span class="s0">from </span><span class="s1">pose_estimation </span><span class="s0">import </span><span class="s1">PoseEstimation</span>
+<span class="s0">import </span><span class="s1">os</span>
+<span class="s0">import </span><span class="s1">cv2</span>
+<span class="s0">from </span><span class="s1">args </span><span class="s0">import </span><span class="s1">get_args</span><span class="s2">, </span><span class="s1">show_args</span>
+<span class="s0">import </span><span class="s1">numpy </span><span class="s0">as </span><span class="s1">np</span>
+<span class="s0">import </span><span class="s1">pickle</span>
+<span class="s0">from </span><span class="s1">collections </span><span class="s0">import </span><span class="s1">deque</span>
+<span class="s0">import </span><span class="s1">time</span>
+<span class="s0">import </span><span class="s1">threading</span>
+<span class="s0">from </span><span class="s1">concurrent</span><span class="s2">.</span><span class="s1">futures </span><span class="s0">import </span><span class="s1">ThreadPoolExecutor</span>
+<span class="s0">import </span><span class="s1">flask </span><span class="s0">as </span><span class="s1">fl</span>
+<span class="s0">from </span><span class="s1">flask </span><span class="s0">import </span><span class="s1">Flask</span><span class="s2">, </span><span class="s1">jsonify</span><span class="s2">, </span><span class="s1">request</span>
+<span class="s0">import </span><span class="s1">requests</span>
+<span class="s0">import </span><span class="s1">datetime</span>
+<span class="s0">from </span><span class="s1">requests</span><span class="s2">.</span><span class="s1">auth </span><span class="s0">import </span><span class="s1">HTTPDigestAuth</span>
+<span class="s0">from </span><span class="s1">flask </span><span class="s0">import </span><span class="s1">request</span>
+<span class="s0">from </span><span class="s1">werkzeug</span><span class="s2">.</span><span class="s1">utils </span><span class="s0">import </span><span class="s1">secure_filename</span>
+<span class="s0">import </span><span class="s1">tempfile</span>
+<span class="s3">&quot;&quot;&quot; 
+UPLOAD_FOLDER = 'E:/DetectorDeCaidas3.9/DetectorDeCaidas3.9/Videos/caidasCamara/Camara_state20240507122643.mp4' 
+ 
+app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER 
+&quot;&quot;&quot;</span>
+<span class="s1">app </span><span class="s2">= </span><span class="s1">Flask</span><span class="s2">(</span><span class="s1">__name__</span><span class="s2">)</span>
+<span class="s1">nombre_camara </span><span class="s2">= </span><span class="s0">None</span>
+<span class="s1">estado </span><span class="s2">= </span><span class="s0">None</span>
+<span class="s0">class </span><span class="s1">FallDetector</span><span class="s2">:</span>
+
+    <span class="s0">def </span><span class="s1">__init__</span><span class="s2">(</span><span class="s1">self</span><span class="s2">, </span><span class="s1">args</span><span class="s2">):</span>
+        <span class="s4"># Get args</span>
+        <span class="s1">self</span><span class="s2">.</span><span class="s1">frame_rate </span><span class="s2">= </span><span class="s1">args</span><span class="s2">.</span><span class="s1">frame_rate</span>
+        <span class="s1">self</span><span class="s2">.</span><span class="s1">chunk_seconds </span><span class="s2">= </span><span class="s1">args</span><span class="s2">.</span><span class="s1">chunk_seconds</span>
+        <span class="s1">self</span><span class="s2">.</span><span class="s1">display_video </span><span class="s2">= </span><span class="s1">args</span><span class="s2">.</span><span class="s1">display_video</span>
+        <span class="s1">self</span><span class="s2">.</span><span class="s1">posenet_model_path </span><span class="s2">= </span><span class="s1">args</span><span class="s2">.</span><span class="s1">posenet_model_path</span>
+        <span class="s1">self</span><span class="s2">.</span><span class="s1">video_name </span><span class="s2">= </span><span class="s3">&quot;temp/state&quot;</span>
+        <span class="s1">self</span><span class="s2">.</span><span class="s1">caidas_folder </span><span class="s2">= </span><span class="s3">&quot;Videos/caidasCamara&quot;</span>
+        <span class="s1">self</span><span class="s2">.</span><span class="s1">start_time </span><span class="s2">= </span><span class="s0">None</span>
+        <span class="s1">self</span><span class="s2">.</span><span class="s1">fall_detected </span><span class="s2">= </span><span class="s0">False</span>
+        <span class="s1">show_args</span><span class="s2">(</span><span class="s1">args</span><span class="s2">)</span>
+        <span class="s4"># Load human state classifier model</span>
+        <span class="s1">self</span><span class="s2">.</span><span class="s1">model </span><span class="s2">= </span><span class="s1">pickle</span><span class="s2">.</span><span class="s1">load</span><span class="s2">(</span><span class="s1">open</span><span class="s2">(</span><span class="s1">args</span><span class="s2">.</span><span class="s1">fall_model_path</span><span class="s2">, </span><span class="s3">'rb'</span><span class="s2">))</span>
+        <span class="s0">with </span><span class="s1">open</span><span class="s2">(</span><span class="s1">args</span><span class="s2">.</span><span class="s1">path_model_header</span><span class="s2">) </span><span class="s0">as </span><span class="s1">f</span><span class="s2">:</span>
+            <span class="s1">self</span><span class="s2">.</span><span class="s1">model_header </span><span class="s2">= </span><span class="s1">f</span><span class="s2">.</span><span class="s1">readline</span><span class="s2">().</span><span class="s1">split</span><span class="s2">(</span><span class="s3">&quot;,&quot;</span><span class="s2">)</span>
+
+        <span class="s4"># Threads to send Telegram alerts</span>
+        <span class="s1">self</span><span class="s2">.</span><span class="s1">threads_pool </span><span class="s2">= </span><span class="s1">ThreadPoolExecutor</span><span class="s2">(</span><span class="s1">max_workers</span><span class="s2">=</span><span class="s5">1</span><span class="s2">)</span>
+
+    <span class="s0">def </span><span class="s1">estimate_pose</span><span class="s2">(</span><span class="s1">self</span><span class="s2">, </span><span class="s1">camera_url</span><span class="s2">, </span><span class="s1">camera_name</span><span class="s2">=</span><span class="s3">&quot;Unknow&quot;</span><span class="s2">):</span>
+        <span class="s1">pe </span><span class="s2">= </span><span class="s1">PoseEstimation</span><span class="s2">(</span><span class="s1">self</span><span class="s2">.</span><span class="s1">posenet_model_path</span><span class="s2">)</span>
+        <span class="s1">camera </span><span class="s2">= </span><span class="s1">cv2</span><span class="s2">.</span><span class="s1">VideoCapture</span><span class="s2">(</span><span class="s1">camera_url</span><span class="s2">)</span>
+        <span class="s1">video_rate </span><span class="s2">= </span><span class="s1">int</span><span class="s2">(</span><span class="s1">np</span><span class="s2">.</span><span class="s1">round</span><span class="s2">(</span><span class="s1">camera</span><span class="s2">.</span><span class="s1">get</span><span class="s2">(</span><span class="s1">cv2</span><span class="s2">.</span><span class="s1">CAP_PROP_FPS</span><span class="s2">) / </span><span class="s1">self</span><span class="s2">.</span><span class="s1">frame_rate</span><span class="s2">))</span>
+        <span class="s1">total_frames </span><span class="s2">= </span><span class="s1">self</span><span class="s2">.</span><span class="s1">frame_rate </span><span class="s2">* </span><span class="s1">self</span><span class="s2">.</span><span class="s1">chunk_seconds</span>
+        <span class="s1">print</span><span class="s2">(</span><span class="s3">&quot;FPS&quot;</span><span class="s2">, </span><span class="s1">camera</span><span class="s2">.</span><span class="s1">get</span><span class="s2">(</span><span class="s1">cv2</span><span class="s2">.</span><span class="s1">CAP_PROP_FPS</span><span class="s2">))</span>
+        <span class="s1">state </span><span class="s2">= </span><span class="s3">&quot;Nada&quot;</span>
+
+        <span class="s1">video_keypoints </span><span class="s2">= </span><span class="s1">deque</span><span class="s2">(</span><span class="s1">maxlen</span><span class="s2">=</span><span class="s1">total_frames</span><span class="s2">)</span>
+        <span class="s1">video_to_send </span><span class="s2">= </span><span class="s1">deque</span><span class="s2">(</span><span class="s1">maxlen</span><span class="s2">=</span><span class="s1">total_frames</span><span class="s2">)</span>
+
+        <span class="s1">frame_number </span><span class="s2">= -</span><span class="s5">1</span>
+        <span class="s0">while True</span><span class="s2">:</span>
+            <span class="s1">ret</span><span class="s2">, </span><span class="s1">frame </span><span class="s2">= </span><span class="s1">camera</span><span class="s2">.</span><span class="s1">read</span><span class="s2">()</span>
+            <span class="s0">if not </span><span class="s1">ret</span><span class="s2">:</span>
+                <span class="s4">#print(&quot;No hay imagen de la camara&quot;)</span>
+                <span class="s0">break</span>
+            <span class="s1">frame_number </span><span class="s2">= (</span><span class="s1">frame_number </span><span class="s2">+ </span><span class="s5">1</span><span class="s2">) % </span><span class="s1">video_rate</span>
+
+            <span class="s0">if </span><span class="s1">frame_number </span><span class="s2">== </span><span class="s5">0</span><span class="s2">:</span>
+                <span class="s4"># Resize img</span>
+                <span class="s1">frame </span><span class="s2">= </span><span class="s1">pe</span><span class="s2">.</span><span class="s1">make_square</span><span class="s2">(</span><span class="s1">frame</span><span class="s2">, </span><span class="s1">pe</span><span class="s2">.</span><span class="s1">expected_pixels</span><span class="s2">)</span>
+                <span class="s4"># Save the frame</span>
+                <span class="s1">video_to_send</span><span class="s2">.</span><span class="s1">append</span><span class="s2">(</span><span class="s1">np</span><span class="s2">.</span><span class="s1">copy</span><span class="s2">(</span><span class="s1">frame</span><span class="s2">))</span>
+                <span class="s4">#print(&quot;video_to_send despues de append &quot;,type(video_to_send))</span>
+
+                <span class="s4"># Get body parts</span>
+                <span class="s1">pose </span><span class="s2">= </span><span class="s1">pe</span><span class="s2">.</span><span class="s1">get_pose_estimation</span><span class="s2">(</span><span class="s1">frame</span><span class="s2">)</span>
+                <span class="s4"># Normalizing scale</span>
+                <span class="s1">max_val </span><span class="s2">= </span><span class="s1">np</span><span class="s2">.</span><span class="s1">abs</span><span class="s2">(</span><span class="s1">np</span><span class="s2">.</span><span class="s1">max</span><span class="s2">(</span><span class="s1">pose</span><span class="s2">))</span>
+
+                <span class="s1">pose</span><span class="s2">[:] = </span><span class="s1">pose</span><span class="s2">[:] / </span><span class="s1">max_val</span>
+
+                <span class="s1">video_keypoints</span><span class="s2">.</span><span class="s1">append</span><span class="s2">(</span><span class="s1">np</span><span class="s2">.</span><span class="s1">reshape</span><span class="s2">(</span><span class="s1">pose</span><span class="s2">, -</span><span class="s5">1</span><span class="s2">))</span>
+
+                <span class="s0">if </span><span class="s1">len</span><span class="s2">(</span><span class="s1">video_keypoints</span><span class="s2">) == </span><span class="s1">total_frames</span><span class="s2">:</span>
+
+                    <span class="s1">state </span><span class="s2">= </span><span class="s1">self</span><span class="s2">.</span><span class="s1">report_state</span><span class="s2">(</span><span class="s1">np</span><span class="s2">.</span><span class="s1">reshape</span><span class="s2">(</span><span class="s1">video_keypoints</span><span class="s2">, (</span><span class="s5">1</span><span class="s2">, -</span><span class="s5">1</span><span class="s2">)), </span><span class="s1">np</span><span class="s2">.</span><span class="s1">copy</span><span class="s2">(</span><span class="s1">video_to_send</span><span class="s2">),</span>
+                                              <span class="s1">camera_name</span><span class="s2">, </span><span class="s1">pe</span><span class="s2">.</span><span class="s1">expected_pixels</span><span class="s2">)</span>
+
+                    <span class="s1">video_keypoints</span><span class="s2">.</span><span class="s1">clear</span><span class="s2">()</span>
+                    <span class="s1">video_to_send</span><span class="s2">.</span><span class="s1">clear</span><span class="s2">()</span>
+
+                <span class="s0">if </span><span class="s1">self</span><span class="s2">.</span><span class="s1">display_video</span><span class="s2">:</span>
+                    <span class="s1">self</span><span class="s2">.</span><span class="s1">show_results</span><span class="s2">(</span><span class="s1">frame</span><span class="s2">, </span><span class="s1">camera_name</span><span class="s2">, </span><span class="s1">state</span><span class="s2">)</span>
+
+            <span class="s1">key </span><span class="s2">= </span><span class="s1">cv2</span><span class="s2">.</span><span class="s1">waitKey</span><span class="s2">(</span><span class="s5">1</span><span class="s2">) &amp; </span><span class="s5">0xFF</span>
+            <span class="s0">if </span><span class="s1">key </span><span class="s2">== </span><span class="s1">ord</span><span class="s2">(</span><span class="s3">'x'</span><span class="s2">):</span>
+                <span class="s0">break</span>
+
+        <span class="s1">camera</span><span class="s2">.</span><span class="s1">release</span><span class="s2">()</span>
+        <span class="s1">cv2</span><span class="s2">.</span><span class="s1">destroyAllWindows</span><span class="s2">()</span>
+
+    <span class="s0">def </span><span class="s1">report_state</span><span class="s2">(</span><span class="s1">self</span><span class="s2">, </span><span class="s1">video_keypoints</span><span class="s2">, </span><span class="s1">video_to_send</span><span class="s2">, </span><span class="s1">camera_name</span><span class="s2">, </span><span class="s1">video_dim</span><span class="s2">):</span>
+        <span class="s1">predicted_state </span><span class="s2">= </span><span class="s1">self</span><span class="s2">.</span><span class="s1">model</span><span class="s2">.</span><span class="s1">predict</span><span class="s2">(</span><span class="s1">video_keypoints</span><span class="s2">)[</span><span class="s5">0</span><span class="s2">]</span>
+        <span class="s1">confidence </span><span class="s2">= </span><span class="s1">self</span><span class="s2">.</span><span class="s1">model</span><span class="s2">.</span><span class="s1">predict_proba</span><span class="s2">(</span><span class="s1">video_keypoints</span><span class="s2">)[</span><span class="s5">0</span><span class="s2">]</span>
+        <span class="s1">state </span><span class="s2">= </span><span class="s3">&quot;Nada&quot;</span>
+        <span class="s0">if </span><span class="s1">predicted_state </span><span class="s0">in </span><span class="s2">[</span><span class="s3">&quot;Fall&quot;</span><span class="s2">, </span><span class="s3">&quot;Recover&quot;</span><span class="s2">] </span><span class="s0">and </span><span class="s1">any</span><span class="s2">(</span><span class="s1">conf </span><span class="s2">&gt;= </span><span class="s5">0.5 </span><span class="s0">for </span><span class="s1">conf </span><span class="s0">in </span><span class="s1">confidence</span><span class="s2">):</span>
+            <span class="s0">if not </span><span class="s1">self</span><span class="s2">.</span><span class="s1">fall_detected</span><span class="s2">:</span>
+                <span class="s4"># Si es la primera vez que se detecta la caída, registrar el tiempo</span>
+                <span class="s1">self</span><span class="s2">.</span><span class="s1">start_time </span><span class="s2">= </span><span class="s1">time</span><span class="s2">.</span><span class="s1">time</span><span class="s2">()</span>
+                <span class="s1">self</span><span class="s2">.</span><span class="s1">fall_detected </span><span class="s2">= </span><span class="s0">True</span>
+            <span class="s0">else</span><span class="s2">:</span>
+                <span class="s0">if </span><span class="s1">time</span><span class="s2">.</span><span class="s1">time</span><span class="s2">() - </span><span class="s1">self</span><span class="s2">.</span><span class="s1">start_time </span><span class="s2">&gt;= </span><span class="s5">0</span><span class="s2">:</span>
+                    <span class="s1">state </span><span class="s2">= </span><span class="s3">&quot;Fall&quot;</span>
+                    <span class="s0">try</span><span class="s2">:</span>
+                        <span class="s0">if </span><span class="s1">state </span><span class="s2">== </span><span class="s3">&quot;Fall&quot; </span><span class="s0">or </span><span class="s1">state </span><span class="s2">== </span><span class="s3">&quot;Recover&quot;</span><span class="s2">:</span>
+                            <span class="s1">thread </span><span class="s2">= </span><span class="s1">threading</span><span class="s2">.</span><span class="s1">Thread</span><span class="s2">(</span><span class="s1">target</span><span class="s2">=</span><span class="s1">self</span><span class="s2">.</span><span class="s1">report</span><span class="s2">,</span>
+                                                      <span class="s1">args</span><span class="s2">=(</span><span class="s1">video_to_send</span><span class="s2">, </span><span class="s1">video_dim</span><span class="s2">, </span><span class="s1">state</span><span class="s2">, </span><span class="s1">camera_name</span><span class="s2">))</span>
+
+
+                            <span class="s1">thread</span><span class="s2">.</span><span class="s1">start</span><span class="s2">()</span>
+
+                    <span class="s0">except </span><span class="s1">RuntimeError </span><span class="s0">as </span><span class="s1">e</span><span class="s2">:</span>
+                        <span class="s1">print</span><span class="s2">(</span><span class="s3">&quot;Error al programar tarea en el ThreadPoolExecutor:&quot;</span><span class="s2">, </span><span class="s1">e</span><span class="s2">)</span>
+                <span class="s0">else</span><span class="s2">:</span>
+                    <span class="s1">state </span><span class="s2">= </span><span class="s3">&quot;Nada&quot;</span>
+        <span class="s0">else</span><span class="s2">:</span>
+            <span class="s4"># Si no se detecta una caída, restablecer el estado de detección</span>
+            <span class="s1">self</span><span class="s2">.</span><span class="s1">start_time </span><span class="s2">= </span><span class="s0">None</span>
+            <span class="s1">self</span><span class="s2">.</span><span class="s1">fall_detected </span><span class="s2">= </span><span class="s0">False</span>
+            <span class="s1">state </span><span class="s2">= </span><span class="s3">&quot;Nada&quot;</span>
+        <span class="s0">global </span><span class="s1">estado</span><span class="s2">, </span><span class="s1">nombre_camara</span>
+        <span class="s1">estado </span><span class="s2">= </span><span class="s1">state</span>
+        <span class="s1">nombre_camara </span><span class="s2">= </span><span class="s1">camera_name</span>
+        <span class="s1">print</span><span class="s2">(</span><span class="s1">state</span><span class="s2">)</span>
+
+        <span class="s0">return </span><span class="s1">state</span>
+
+
+    <span class="s0">def </span><span class="s1">report</span><span class="s2">(</span><span class="s1">self</span><span class="s2">, </span><span class="s1">video_to_send</span><span class="s2">, </span><span class="s1">video_dim</span><span class="s2">, </span><span class="s1">state</span><span class="s2">, </span><span class="s1">camera_name</span><span class="s2">):</span>
+        <span class="s1">self</span><span class="s2">.</span><span class="s1">video_name </span><span class="s2">= </span><span class="s3">&quot;state&quot;</span>
+        <span class="s1">current_time </span><span class="s2">= </span><span class="s1">datetime</span><span class="s2">.</span><span class="s1">datetime</span><span class="s2">.</span><span class="s1">now</span><span class="s2">().</span><span class="s1">strftime</span><span class="s2">(</span><span class="s3">&quot;%Y%m%d%H%M%S&quot;</span><span class="s2">)</span>
+        <span class="s1">file_video_name </span><span class="s2">= </span><span class="s1">os</span><span class="s2">.</span><span class="s1">path</span><span class="s2">.</span><span class="s1">join</span><span class="s2">(</span><span class="s1">self</span><span class="s2">.</span><span class="s1">caidas_folder</span><span class="s2">,</span>
+                                       <span class="s3">&quot;{}_{}{}.mp4&quot;</span><span class="s2">.</span><span class="s1">format</span><span class="s2">(</span><span class="s1">camera_name</span><span class="s2">, </span><span class="s1">self</span><span class="s2">.</span><span class="s1">video_name</span><span class="s2">, </span><span class="s1">current_time</span><span class="s2">))</span>
+        <span class="s1">print</span><span class="s2">(</span><span class="s3">&quot;file_video &quot;</span><span class="s2">, </span><span class="s1">file_video_name</span><span class="s2">)</span>
+
+        <span class="s0">if not </span><span class="s1">os</span><span class="s2">.</span><span class="s1">path</span><span class="s2">.</span><span class="s1">exists</span><span class="s2">(</span><span class="s1">self</span><span class="s2">.</span><span class="s1">caidas_folder</span><span class="s2">):</span>
+            <span class="s1">os</span><span class="s2">.</span><span class="s1">makedirs</span><span class="s2">(</span><span class="s1">self</span><span class="s2">.</span><span class="s1">caidas_folder</span><span class="s2">)</span>
+            <span class="s1">video_params </span><span class="s2">= [</span><span class="s1">cv2</span><span class="s2">.</span><span class="s1">IMWRITE_JPEG_QUALITY</span><span class="s2">, </span><span class="s5">100</span><span class="s2">]</span>
+
+        <span class="s1">video </span><span class="s2">= </span><span class="s1">cv2</span><span class="s2">.</span><span class="s1">VideoWriter</span><span class="s2">(</span><span class="s1">file_video_name</span><span class="s2">, </span><span class="s1">cv2</span><span class="s2">.</span><span class="s1">VideoWriter_fourcc</span><span class="s2">(*</span><span class="s3">'mp4v'</span><span class="s2">),</span>
+                                <span class="s1">self</span><span class="s2">.</span><span class="s1">frame_rate</span><span class="s2">, (</span><span class="s1">video_dim</span><span class="s2">, </span><span class="s1">video_dim</span><span class="s2">))</span>
+        <span class="s1">print</span><span class="s2">(</span><span class="s3">&quot;video &quot;</span><span class="s2">, </span><span class="s1">video</span><span class="s2">)</span>
+        <span class="s4"># Escribir los fotogramas en el archivo de video</span>
+        <span class="s0">for </span><span class="s1">frame </span><span class="s0">in </span><span class="s1">video_to_send</span><span class="s2">:</span>
+            <span class="s1">video</span><span class="s2">.</span><span class="s1">write</span><span class="s2">(</span><span class="s1">frame</span><span class="s2">)</span>
+        <span class="s1">video</span><span class="s2">.</span><span class="s1">release</span><span class="s2">()</span>
+
+        <span class="s4">#Mensaje de confirmación</span>
+        <span class="s1">alert_icon </span><span class="s2">= </span><span class="s3">&quot;⚠&quot;</span>
+        <span class="s0">if </span><span class="s1">state </span><span class="s2">== </span><span class="s3">&quot;Recover&quot;</span><span class="s2">:</span>
+            <span class="s1">alert_icon </span><span class="s2">= </span><span class="s3">&quot;👍🏼&quot;</span>
+        <span class="s1">message </span><span class="s2">= </span><span class="s3">&quot;{}{} detected{}: {}&quot;</span><span class="s2">.</span><span class="s1">format</span><span class="s2">(</span><span class="s1">alert_icon</span><span class="s2">, </span><span class="s1">state</span><span class="s2">, </span><span class="s1">camera_name</span><span class="s2">, </span><span class="s1">alert_icon</span><span class="s2">)</span>
+    <span class="s0">def </span><span class="s1">show_results</span><span class="s2">(</span><span class="s1">self</span><span class="s2">, </span><span class="s1">frame</span><span class="s2">, </span><span class="s1">camera</span><span class="s2">, </span><span class="s1">state</span><span class="s2">):</span>
+        <span class="s1">org </span><span class="s2">= (</span><span class="s5">40</span><span class="s2">, </span><span class="s5">40</span><span class="s2">)</span>
+        <span class="s1">color </span><span class="s2">= (</span><span class="s5">255</span><span class="s2">, </span><span class="s5">255</span><span class="s2">, </span><span class="s5">0</span><span class="s2">)</span>
+        <span class="s1">thickness </span><span class="s2">= </span><span class="s5">1</span>
+        <span class="s1">font_scale </span><span class="s2">= </span><span class="s5">1</span>
+        <span class="s1">font </span><span class="s2">= </span><span class="s1">cv2</span><span class="s2">.</span><span class="s1">FONT_HERSHEY_SIMPLEX</span>
+        <span class="s1">cv2</span><span class="s2">.</span><span class="s1">imshow</span><span class="s2">(</span><span class="s1">camera</span><span class="s2">, </span><span class="s1">cv2</span><span class="s2">.</span><span class="s1">putText</span><span class="s2">(</span><span class="s1">frame</span><span class="s2">, </span><span class="s1">state</span><span class="s2">, </span><span class="s1">org</span><span class="s2">, </span><span class="s1">font</span><span class="s2">, </span><span class="s1">font_scale</span><span class="s2">, </span><span class="s1">color</span><span class="s2">, </span><span class="s1">thickness</span><span class="s2">, </span><span class="s1">cv2</span><span class="s2">.</span><span class="s1">LINE_AA</span><span class="s2">))</span>
+
+    <span class="s0">def </span><span class="s1">close_threads_pool</span><span class="s2">(</span><span class="s1">self</span><span class="s2">):</span>
+        <span class="s1">self</span><span class="s2">.</span><span class="s1">threads_pool</span><span class="s2">.</span><span class="s1">shutdown</span><span class="s2">()</span>
+<span class="s4">######################################################################################################################</span>
+
+
+<span class="s3">&quot;&quot;&quot; 
+    def send_video_to_flask(self, video_dim, video_to_send, state, camera_name): 
+        url = &quot;http://172.26.19.127:5000/caidas&quot; 
+ 
+        with tempfile.NamedTemporaryFile(delete=False) as temp_file: 
+            temp_file_name = temp_file.name 
+ 
+            # Verificar si video_to_send tiene elementos válidos 
+            if video_to_send and isinstance(video_to_send[0], np.ndarray): 
+                frame_size = video_to_send[0].shape[:2] 
+            else: 
+                print(&quot;Error: video_to_send no contiene elementos válidos&quot;) 
+                return 
+ 
+            video = cv2.VideoWriter(temp_file_name, cv2.VideoWriter_fourcc(*'mp4v'), 
+                                    self.frame_rate, frame_size) 
+            for frame in video_to_send: 
+                video.write(frame) 
+ 
+            video.release() 
+ 
+            files = {'video_file': open(temp_file_name, 'rb')} 
+            data = {'camera_name': camera_name, 'state': state} 
+ 
+            try: 
+                response = requests.post(url, files=files, data=data) 
+                if response.status_code == 200: 
+                    print(&quot;Video enviado exitosamente a Flask.&quot;) 
+                else: 
+                    print(&quot;Error al enviar el video a Flask:&quot;, response.status_code) 
+            except Exception as e: 
+                print(&quot;Error al enviar el video a Flask:&quot;, e) 
+            finally: 
+                os.unlink(temp_file_name) 
+ 
+&quot;&quot;&quot;</span>
+
+
+<span class="s2">@</span><span class="s1">app</span><span class="s2">.</span><span class="s1">route</span><span class="s2">(</span><span class="s3">'/caidas'</span><span class="s2">, </span><span class="s1">methods</span><span class="s2">=[</span><span class="s3">'GET'</span><span class="s2">])</span>
+<span class="s0">def </span><span class="s1">receive_fall_data</span><span class="s2">():</span>
+    <span class="s0">global </span><span class="s1">nombre_camara</span><span class="s2">, </span><span class="s1">estado</span>
+    <span class="s0">if </span><span class="s1">nombre_camara </span><span class="s0">is None or </span><span class="s1">estado </span><span class="s0">is None</span><span class="s2">:</span>
+        <span class="s0">return </span><span class="s1">jsonify</span><span class="s2">({</span><span class="s3">&quot;error&quot;</span><span class="s2">: </span><span class="s3">&quot;Se requieren parámetros 'camera_name' y 'state'&quot;</span><span class="s2">}), </span><span class="s5">400</span>
+
+    <span class="s1">formatted_trigger </span><span class="s2">= {</span>
+        <span class="s3">&quot;camera_name&quot;</span><span class="s2">: </span><span class="s1">nombre_camara</span><span class="s2">,</span>
+        <span class="s3">&quot;state&quot;</span><span class="s2">: </span><span class="s1">estado</span>
+    <span class="s2">}</span>
+    <span class="s4"># Reinicia las variables globales después de usarlas</span>
+    <span class="s0">return </span><span class="s1">jsonify</span><span class="s2">(</span><span class="s1">formatted_trigger</span><span class="s2">), </span><span class="s5">200</span>
+
+<span class="s0">if </span><span class="s1">__name__ </span><span class="s2">== </span><span class="s3">&quot;__main__&quot;</span><span class="s2">:</span>
+    <span class="s4"># Get args</span>
+    <span class="s1">parser </span><span class="s2">= </span><span class="s1">get_args</span><span class="s2">()</span>
+    <span class="s1">args </span><span class="s2">= </span><span class="s1">parser</span><span class="s2">.</span><span class="s1">parse_args</span><span class="s2">()</span>
+    <span class="s4"># Start the program</span>
+    <span class="s1">fall_detector </span><span class="s2">= </span><span class="s1">FallDetector</span><span class="s2">(</span><span class="s1">args</span><span class="s2">)</span>
+
+    <span class="s4"># Get the cameras</span>
+    <span class="s1">path_cameras </span><span class="s2">= </span><span class="s1">open</span><span class="s2">(</span><span class="s1">args</span><span class="s2">.</span><span class="s1">path_cameras</span><span class="s2">, </span><span class="s3">'r'</span><span class="s2">)</span>
+    <span class="s0">for </span><span class="s1">line </span><span class="s0">in </span><span class="s1">path_cameras</span><span class="s2">.</span><span class="s1">readlines</span><span class="s2">():</span>
+        <span class="s0">if </span><span class="s1">line</span><span class="s2">.</span><span class="s1">startswith</span><span class="s2">(</span><span class="s3">&quot;#&quot;</span><span class="s2">) </span><span class="s0">or </span><span class="s1">line </span><span class="s2">== </span><span class="s3">''</span><span class="s2">:</span>
+            <span class="s0">continue</span>
+
+        <span class="s1">parts </span><span class="s2">= </span><span class="s1">line</span><span class="s2">.</span><span class="s1">strip</span><span class="s2">().</span><span class="s1">split</span><span class="s2">(</span><span class="s3">&quot;, &quot;</span><span class="s2">)</span>
+        <span class="s1">print</span><span class="s2">(</span><span class="s3">&quot;Starting camera {}&quot;</span><span class="s2">.</span><span class="s1">format</span><span class="s2">(</span><span class="s1">parts</span><span class="s2">[</span><span class="s5">1</span><span class="s2">]))</span>
+        <span class="s1">threading</span><span class="s2">.</span><span class="s1">Thread</span><span class="s2">(</span><span class="s1">target</span><span class="s2">=</span><span class="s1">fall_detector</span><span class="s2">.</span><span class="s1">estimate_pose</span><span class="s2">,</span>
+                         <span class="s1">args</span><span class="s2">=(</span><span class="s1">parts</span><span class="s2">[</span><span class="s5">0</span><span class="s2">], </span><span class="s1">parts</span><span class="s2">[</span><span class="s5">1</span><span class="s2">],)).</span><span class="s1">start</span><span class="s2">()</span>
+    <span class="s1">app</span><span class="s2">.</span><span class="s1">run</span><span class="s2">(</span><span class="s1">host</span><span class="s2">=</span><span class="s3">&quot;172.26.19.127&quot;</span><span class="s2">, </span><span class="s1">port</span><span class="s2">=</span><span class="s5">5000</span><span class="s2">)</span>
+
+    <span class="s4"># Cerramos los threads</span>
+    <span class="s1">fall_detector</span><span class="s2">.</span><span class="s1">close_threads_pool</span><span class="s2">()</span>
+
+
+</pre>
+</body>
+</html>

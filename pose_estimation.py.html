@@ -1,0 +1,87 @@
+<html>
+<head>
+<title>pose_estimation.py</title>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+<style type="text/css">
+.s0 { color: #cf8e6d;}
+.s1 { color: #bcbec4;}
+.s2 { color: #bcbec4;}
+.s3 { color: #6aab73;}
+.s4 { color: #2aacb8;}
+.s5 { color: #7a7e85;}
+</style>
+</head>
+<body bgcolor="#1e1f22">
+<table CELLSPACING=0 CELLPADDING=5 COLS=1 WIDTH="100%" BGCOLOR="#606060" >
+<tr><td><center>
+<font face="Arial, Helvetica" color="#000000">
+pose_estimation.py</font>
+</center></td></tr></table>
+<pre><span class="s0">import </span><span class="s1">numpy </span><span class="s0">as </span><span class="s1">np</span>
+<span class="s0">import </span><span class="s1">cv2</span>
+<span class="s0">import </span><span class="s1">os</span>
+<span class="s0">import </span><span class="s1">os</span>
+<span class="s1">os</span><span class="s2">.</span><span class="s1">environ</span><span class="s2">[</span><span class="s3">'TF_ENABLE_ONEDNN_OPTS'</span><span class="s2">] = </span><span class="s3">'0'</span>
+<span class="s0">import </span><span class="s1">tensorflow </span><span class="s0">as </span><span class="s1">tf</span>
+<span class="s0">class </span><span class="s1">PoseEstimation</span><span class="s2">:</span>
+    <span class="s1">model_path </span><span class="s2">= </span><span class="s3">&quot;posenet_mobilenet_v1_100_257x257_multi_kpt_stripped.tflite&quot;</span>
+    <span class="s1">body_parts </span><span class="s2">= [</span><span class="s3">&quot;nose&quot;</span><span class="s2">, </span><span class="s3">&quot;leftEye&quot;</span><span class="s2">, </span><span class="s3">&quot;rightEye&quot;</span><span class="s2">, </span><span class="s3">&quot;leftEar&quot;</span><span class="s2">, </span><span class="s3">&quot;rightEar&quot;</span><span class="s2">, </span><span class="s3">&quot;leftShoulder&quot;</span><span class="s2">, </span><span class="s3">&quot;rightShoulder&quot;</span><span class="s2">,</span>
+                  <span class="s3">&quot;leftElbow&quot;</span><span class="s2">, </span><span class="s3">&quot;rightElbow&quot;</span><span class="s2">, </span><span class="s3">&quot;leftWrist&quot;</span><span class="s2">, </span><span class="s3">&quot;rightWrist&quot;</span><span class="s2">, </span><span class="s3">&quot;leftHip&quot;</span><span class="s2">, </span><span class="s3">&quot;rightHip&quot;</span><span class="s2">, </span><span class="s3">&quot;leftKnee&quot;</span><span class="s2">,</span>
+                  <span class="s3">&quot;rightKnee&quot;</span><span class="s2">, </span><span class="s3">&quot;leftAnkle&quot;</span><span class="s2">, </span><span class="s3">&quot;rightAnkle&quot;</span><span class="s2">]</span>
+
+    <span class="s0">def </span><span class="s1">__init__</span><span class="s2">(</span><span class="s1">self</span><span class="s2">, </span><span class="s1">model_path</span><span class="s2">=</span><span class="s1">model_path</span><span class="s2">):</span>
+        <span class="s1">self</span><span class="s2">.</span><span class="s1">interpreter </span><span class="s2">= </span><span class="s1">tf</span><span class="s2">.</span><span class="s1">lite</span><span class="s2">.</span><span class="s1">Interpreter</span><span class="s2">(</span><span class="s1">model_path</span><span class="s2">=</span><span class="s1">model_path</span><span class="s2">)</span>
+        <span class="s1">self</span><span class="s2">.</span><span class="s1">interpreter</span><span class="s2">.</span><span class="s1">allocate_tensors</span><span class="s2">()</span>
+
+        <span class="s1">self</span><span class="s2">.</span><span class="s1">input_details </span><span class="s2">= </span><span class="s1">self</span><span class="s2">.</span><span class="s1">interpreter</span><span class="s2">.</span><span class="s1">get_input_details</span><span class="s2">()</span>
+        <span class="s1">self</span><span class="s2">.</span><span class="s1">output_details </span><span class="s2">= </span><span class="s1">self</span><span class="s2">.</span><span class="s1">interpreter</span><span class="s2">.</span><span class="s1">get_output_details</span><span class="s2">()</span>
+        <span class="s1">self</span><span class="s2">.</span><span class="s1">expected_pixels </span><span class="s2">= </span><span class="s1">self</span><span class="s2">.</span><span class="s1">input_details</span><span class="s2">[</span><span class="s4">0</span><span class="s2">][</span><span class="s3">'shape'</span><span class="s2">][</span><span class="s4">1</span><span class="s2">]</span>
+
+    <span class="s0">def </span><span class="s1">get_pose_estimation</span><span class="s2">(</span><span class="s1">self</span><span class="s2">, </span><span class="s1">img</span><span class="s2">):</span>
+        <span class="s1">input_data </span><span class="s2">= </span><span class="s1">np</span><span class="s2">.</span><span class="s1">expand_dims</span><span class="s2">(</span><span class="s1">img</span><span class="s2">.</span><span class="s1">copy</span><span class="s2">(), </span><span class="s1">axis</span><span class="s2">=</span><span class="s4">0</span><span class="s2">)</span>
+        <span class="s1">floating_model </span><span class="s2">= </span><span class="s1">self</span><span class="s2">.</span><span class="s1">input_details</span><span class="s2">[</span><span class="s4">0</span><span class="s2">][</span><span class="s3">'dtype'</span><span class="s2">] == </span><span class="s1">np</span><span class="s2">.</span><span class="s1">float32</span>
+        <span class="s0">if </span><span class="s1">floating_model</span><span class="s2">:</span>
+            <span class="s1">input_data </span><span class="s2">= (</span><span class="s1">np</span><span class="s2">.</span><span class="s1">float32</span><span class="s2">(</span><span class="s1">input_data</span><span class="s2">) - </span><span class="s4">127.5</span><span class="s2">) / </span><span class="s4">127.5</span>
+
+        <span class="s1">self</span><span class="s2">.</span><span class="s1">interpreter</span><span class="s2">.</span><span class="s1">set_tensor</span><span class="s2">(</span><span class="s1">self</span><span class="s2">.</span><span class="s1">input_details</span><span class="s2">[</span><span class="s4">0</span><span class="s2">][</span><span class="s3">'index'</span><span class="s2">], </span><span class="s1">input_data</span><span class="s2">)</span>
+        <span class="s1">self</span><span class="s2">.</span><span class="s1">interpreter</span><span class="s2">.</span><span class="s1">invoke</span><span class="s2">()</span>
+
+        <span class="s1">output_data </span><span class="s2">= </span><span class="s1">self</span><span class="s2">.</span><span class="s1">interpreter</span><span class="s2">.</span><span class="s1">get_tensor</span><span class="s2">(</span><span class="s1">self</span><span class="s2">.</span><span class="s1">output_details</span><span class="s2">[</span><span class="s4">0</span><span class="s2">][</span><span class="s3">'index'</span><span class="s2">])</span>
+        <span class="s1">offset_data </span><span class="s2">= </span><span class="s1">self</span><span class="s2">.</span><span class="s1">interpreter</span><span class="s2">.</span><span class="s1">get_tensor</span><span class="s2">(</span><span class="s1">self</span><span class="s2">.</span><span class="s1">output_details</span><span class="s2">[</span><span class="s4">1</span><span class="s2">][</span><span class="s3">'index'</span><span class="s2">])</span>
+
+        <span class="s1">heatmaps </span><span class="s2">= </span><span class="s1">np</span><span class="s2">.</span><span class="s1">squeeze</span><span class="s2">(</span><span class="s1">output_data</span><span class="s2">)</span>
+        <span class="s1">offsets </span><span class="s2">= </span><span class="s1">np</span><span class="s2">.</span><span class="s1">squeeze</span><span class="s2">(</span><span class="s1">offset_data</span><span class="s2">)</span>
+
+        <span class="s1">pose </span><span class="s2">= </span><span class="s1">self</span><span class="s2">.</span><span class="s1">get_keypoints_positions</span><span class="s2">(</span><span class="s1">heatmaps</span><span class="s2">, </span><span class="s1">offsets</span><span class="s2">)</span>
+
+        <span class="s0">return </span><span class="s1">pose</span>
+
+    <span class="s0">def </span><span class="s1">get_keypoints_positions</span><span class="s2">(</span><span class="s1">self</span><span class="s2">, </span><span class="s1">heatmap</span><span class="s2">, </span><span class="s1">offsets</span><span class="s2">):</span>
+        <span class="s1">keypoints_detected </span><span class="s2">= </span><span class="s1">heatmap</span><span class="s2">.</span><span class="s1">shape</span><span class="s2">[-</span><span class="s4">1</span><span class="s2">]</span>
+        <span class="s1">keypoints_positions </span><span class="s2">= </span><span class="s1">np</span><span class="s2">.</span><span class="s1">zeros</span><span class="s2">((</span><span class="s1">keypoints_detected</span><span class="s2">, </span><span class="s4">2</span><span class="s2">), </span><span class="s1">np</span><span class="s2">.</span><span class="s1">float64</span><span class="s2">)</span>
+
+        <span class="s0">for </span><span class="s1">i </span><span class="s0">in </span><span class="s1">range</span><span class="s2">(</span><span class="s1">keypoints_detected</span><span class="s2">):</span>
+            <span class="s1">layer </span><span class="s2">= </span><span class="s1">heatmap</span><span class="s2">[..., </span><span class="s1">i</span><span class="s2">]</span>
+            <span class="s1">approx_position </span><span class="s2">= </span><span class="s1">np</span><span class="s2">.</span><span class="s1">squeeze</span><span class="s2">(</span><span class="s1">np</span><span class="s2">.</span><span class="s1">unravel_index</span><span class="s2">(</span><span class="s1">layer</span><span class="s2">.</span><span class="s1">argmax</span><span class="s2">(), </span><span class="s1">layer</span><span class="s2">.</span><span class="s1">shape</span><span class="s2">))</span>
+            <span class="s1">relocation </span><span class="s2">= </span><span class="s1">np</span><span class="s2">.</span><span class="s1">array</span><span class="s2">(</span><span class="s1">approx_position </span><span class="s2">/ </span><span class="s4">8 </span><span class="s2">* </span><span class="s4">256</span><span class="s2">)</span>
+
+            <span class="s1">keypoints_positions</span><span class="s2">[</span><span class="s1">i</span><span class="s2">, </span><span class="s4">0</span><span class="s2">] = </span><span class="s1">int</span><span class="s2">(</span><span class="s1">relocation</span><span class="s2">[</span><span class="s4">0</span><span class="s2">] + </span><span class="s1">offsets</span><span class="s2">[</span><span class="s1">approx_position</span><span class="s2">[</span><span class="s4">0</span><span class="s2">], </span><span class="s1">approx_position</span><span class="s2">[</span><span class="s4">1</span><span class="s2">], </span><span class="s1">i</span><span class="s2">])</span>
+            <span class="s1">keypoints_positions</span><span class="s2">[</span><span class="s1">i</span><span class="s2">, </span><span class="s4">1</span><span class="s2">] = </span><span class="s1">int</span><span class="s2">(</span><span class="s1">relocation</span><span class="s2">[</span><span class="s4">1</span><span class="s2">] + </span><span class="s1">offsets</span><span class="s2">[</span><span class="s1">approx_position</span><span class="s2">[</span><span class="s4">0</span><span class="s2">], </span><span class="s1">approx_position</span><span class="s2">[</span><span class="s4">1</span><span class="s2">], </span><span class="s1">i </span><span class="s2">+ </span><span class="s1">keypoints_detected</span><span class="s2">])</span>
+
+        <span class="s0">return </span><span class="s1">keypoints_positions</span>
+
+    <span class="s0">def </span><span class="s1">make_square</span><span class="s2">(</span><span class="s1">self</span><span class="s2">, </span><span class="s1">img</span><span class="s2">, </span><span class="s1">expected_pixels</span><span class="s2">=</span><span class="s4">257</span><span class="s2">):</span>
+
+        <span class="s1">max_side </span><span class="s2">= </span><span class="s1">max</span><span class="s2">(</span><span class="s1">img</span><span class="s2">.</span><span class="s1">shape</span><span class="s2">[</span><span class="s4">0</span><span class="s2">:</span><span class="s4">2</span><span class="s2">])</span>
+        <span class="s5"># Background square</span>
+        <span class="s1">square_img </span><span class="s2">= </span><span class="s1">np</span><span class="s2">.</span><span class="s1">zeros</span><span class="s2">((</span><span class="s1">max_side</span><span class="s2">, </span><span class="s1">max_side</span><span class="s2">, </span><span class="s4">3</span><span class="s2">), </span><span class="s1">np</span><span class="s2">.</span><span class="s1">uint8</span><span class="s2">)</span>
+        <span class="s5"># Getting the centering position</span>
+        <span class="s1">ax</span><span class="s2">, </span><span class="s1">ay </span><span class="s2">= (</span><span class="s1">max_side </span><span class="s2">- </span><span class="s1">img</span><span class="s2">.</span><span class="s1">shape</span><span class="s2">[</span><span class="s4">1</span><span class="s2">]) // </span><span class="s4">2</span><span class="s2">, (</span><span class="s1">max_side </span><span class="s2">- </span><span class="s1">img</span><span class="s2">.</span><span class="s1">shape</span><span class="s2">[</span><span class="s4">0</span><span class="s2">]) // </span><span class="s4">2</span>
+        <span class="s5"># Pasting the image in a centering position</span>
+        <span class="s1">square_img</span><span class="s2">[</span><span class="s1">ay</span><span class="s2">:</span><span class="s1">img</span><span class="s2">.</span><span class="s1">shape</span><span class="s2">[</span><span class="s4">0</span><span class="s2">] + </span><span class="s1">ay</span><span class="s2">, </span><span class="s1">ax</span><span class="s2">:</span><span class="s1">ax </span><span class="s2">+ </span><span class="s1">img</span><span class="s2">.</span><span class="s1">shape</span><span class="s2">[</span><span class="s4">1</span><span class="s2">]] = </span><span class="s1">img</span>
+        <span class="s5">#print(&quot;Square img&quot; , square_img)</span>
+        <span class="s0">return </span><span class="s1">cv2</span><span class="s2">.</span><span class="s1">resize</span><span class="s2">(</span><span class="s1">square_img</span><span class="s2">, (</span><span class="s1">expected_pixels</span><span class="s2">, </span><span class="s1">expected_pixels</span><span class="s2">))</span>
+
+</pre>
+</body>
+</html>
