@@ -1,0 +1,292 @@
+from pose_estimation import PoseEstimation
+import os
+import cv2
+from args import get_args, show_args
+import numpy as np
+import pickle
+from collections import deque
+import time
+import threading
+from concurrent.futures import ThreadPoolExecutor
+import flask as fl
+from flask import Flask, jsonify, request
+import requests
+import datetime
+import glob
+from requests.auth import HTTPDigestAuth
+from flask import request
+from flask import send_file
+from werkzeug.utils import secure_filename
+import tempfile
+import base64
+
+
+app = Flask(__name__)
+UPLOAD_FOLDER = 'E:/DetectorDeCaidas3.9/DetectorDeCaidas3.9/carpetaFrames/'
+app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
+nombre_camara = None
+estado = None
+formatted_time = None
+
+class FallDetector:
+
+    def __init__(self, args):
+        # Get args
+        self.frame_rate = args.frame_rate
+        self.chunk_seconds = args.chunk_seconds
+        self.display_video = args.display_video
+        self.posenet_model_path = args.posenet_model_path
+        self.video_name = "temp/state"
+        self.caidas_folder = "Videos/caidasCamara"
+        self.start_time = None
+        self.fall_detected = False
+        show_args(args)
+        # Load human state classifier model
+        self.model = pickle.load(open(args.fall_model_path, 'rb'))
+        with open(args.path_model_header) as f:
+            self.model_header = f.readline().split(",")
+
+        # Threads to send Telegram alerts
+        self.threads_pool = ThreadPoolExecutor(max_workers=1)
+
+    def estimate_pose(self, camera_url, camera_name="Unknow"):
+        pe = PoseEstimation(self.posenet_model_path)
+        camera = cv2.VideoCapture(camera_url)
+        video_rate = int(np.round(camera.get(cv2.CAP_PROP_FPS) / self.frame_rate))
+        total_frames = self.frame_rate * self.chunk_seconds
+        print("FPS", camera.get(cv2.CAP_PROP_FPS))
+        state = "Nada"
+
+        video_keypoints = deque(maxlen=total_frames)
+        video_to_send = deque(maxlen=total_frames)
+
+        frame_number = -1
+        while True:
+            ret, frame = camera.read()
+            if not ret:
+                #print("No hay imagen de la camara")
+                break
+            frame_number = (frame_number + 1) % video_rate
+
+            if frame_number == 0:
+                # Resize img
+                frame = pe.make_square(frame, pe.expected_pixels)
+                # Save the frame
+                video_to_send.append(np.copy(frame))
+                #print("video_to_send despues de append ",type(video_to_send))
+
+                # Get body parts
+                pose = pe.get_pose_estimation(frame)
+                # Normalizing scale
+                max_val = np.abs(np.max(pose))
+
+                pose[:] = pose[:] / max_val
+
+                video_keypoints.append(np.reshape(pose, -1))
+
+                if len(video_keypoints) == total_frames:
+
+                    state = self.report_state(np.reshape(video_keypoints, (1, -1)), np.copy(video_to_send),
+                                              camera_name, pe.expected_pixels)
+
+                    video_keypoints.clear()
+                    video_to_send.clear()
+
+                if self.display_video:
+                    self.show_results(frame, camera_name, state)
+
+            key = cv2.waitKey(1) & 0xFF
+            if key == ord('x'):
+                break
+
+        camera.release()
+        cv2.destroyAllWindows()
+
+    def report_state(self, video_keypoints, video_to_send, camera_name, video_dim):
+        predicted_state = self.model.predict(video_keypoints)[0]
+        confidence = self.model.predict_proba(video_keypoints)[0]
+        state = "Nada"
+        if predicted_state in ["Fall", "Recover"] and any(conf >= 0.5 for conf in confidence):
+            if not self.fall_detected:
+                # Si es la primera vez que se detecta la caída, registrar el tiempo
+                self.start_time = time.time()
+                self.fall_detected = True
+            else:
+                if time.time() - self.start_time >= 0:
+                    state = "Fall"
+                    try:
+                        if state == "Fall" or state == "Recover":
+                            frame = video_to_send[-1]
+                            thread = threading.Thread(target=self.enviar_frame,
+                                                      args=(frame, camera_name, state))
+                            thread2 = threading.Thread(target=self.report,
+                                                      args=(video_to_send, video_dim, state, camera_name))
+
+
+                            thread.start()
+                            thread2.start()
+
+                    except RuntimeError as e:
+                        print("Error al programar tarea en el ThreadPoolExecutor:", e)
+                else:
+                    state = "Nada"
+        else:
+            # Si no se detecta una caída, restablecer el estado de detección
+            self.start_time = None
+            self.fall_detected = False
+            state = "Nada"
+        global estado, nombre_camara
+        estado = state
+        nombre_camara = camera_name
+        print(state)
+
+        return state
+
+    def enviar_frame(self, frame, camera_name, state):
+        frames_folder = 'E:/DetectorDeCaidas3.9/DetectorDeCaidas3.9/carpetaFrames'
+        if not os.path.exists(frames_folder):
+            os.makedirs(frames_folder)
+
+        current_time = datetime.datetime.now()
+        formatted_time = current_time.strftime("%Y-%m-%d_%H-%M-%S")
+
+        frame_path = os.path.join(frames_folder, f'{camera_name}_{formatted_time}.jpg')
+        cv2.imwrite(frame_path, frame)
+
+        with open(frame_path, 'rb') as file:
+            files = {'frame': ('frame.jpg', file, 'image/jpeg')}
+            try:
+                response = requests.post("http://172.26.19.127:5000/frame", files=files)
+                print(response.text)
+                print(response.json())
+            except Exception as e:
+                print(f"Error al enviar la notificación: ")
+
+    def report(self, video_to_send, video_dim, state, camera_name):
+        self.video_name = "state"
+        current_time = datetime.datetime.now().strftime("%Y%m%d%H%M%S")
+        file_video_name = os.path.join(self.caidas_folder,
+                                       "{}_{}{}.mp4".format(camera_name, self.video_name, current_time))
+        print("file_video ", file_video_name)
+
+        if not os.path.exists(self.caidas_folder):
+            os.makedirs(self.caidas_folder)
+            video_params = [cv2.IMWRITE_JPEG_QUALITY, 100]
+
+        video = cv2.VideoWriter(file_video_name, cv2.VideoWriter_fourcc(*'mp4v'),
+                                self.frame_rate, (video_dim, video_dim))
+        print("video ", video)
+        # Escribir los fotogramas en el archivo de video
+        for frame in video_to_send:
+            video.write(frame)
+        video.release()
+
+        #Mensaje de confirmación
+        alert_icon = "⚠"
+        if state == "Recover":
+            alert_icon = "👍🏼"
+        message = "{}{} detected{}: {}".format(alert_icon, state, camera_name, alert_icon)
+    def show_results(self, frame, camera, state):
+        org = (40, 40)
+        color = (255, 255, 0)
+        thickness = 1
+        font_scale = 1
+        font = cv2.FONT_HERSHEY_SIMPLEX
+        cv2.imshow(camera, cv2.putText(frame, state, org, font, font_scale, color, thickness, cv2.LINE_AA))
+
+    def close_threads_pool(self):
+        self.threads_pool.shutdown()
+######################################################################################################################
+
+
+"""
+    def send_video_to_flask(self, video_dim, video_to_send, state, camera_name):
+        url = "http://172.26.19.127:5000/caidas"
+
+        with tempfile.NamedTemporaryFile(delete=False) as temp_file:
+            temp_file_name = temp_file.name
+
+            # Verificar si video_to_send tiene elementos válidos
+            if video_to_send and isinstance(video_to_send[0], np.ndarray):
+                frame_size = video_to_send[0].shape[:2]
+            else:
+                print("Error: video_to_send no contiene elementos válidos")
+                return
+
+            video = cv2.VideoWriter(temp_file_name, cv2.VideoWriter_fourcc(*'mp4v'),
+                                    self.frame_rate, frame_size)
+            for frame in video_to_send:
+                video.write(frame)
+
+            video.release()
+
+            files = {'video_file': open(temp_file_name, 'rb')}
+            data = {'camera_name': camera_name, 'state': state}
+
+            try:
+                response = requests.post(url, files=files, data=data)
+                if response.status_code == 200:
+                    print("Video enviado exitosamente a Flask.")
+                else:
+                    print("Error al enviar el video a Flask:", response.status_code)
+            except Exception as e:
+                print("Error al enviar el video a Flask:", e)
+            finally:
+                os.unlink(temp_file_name)
+
+"""
+
+
+@app.route('/caidas', methods=['GET'])
+def receive_fall_data():
+    global nombre_camara, estado
+
+    if nombre_camara is None or estado is None:
+        return jsonify({"error": "Se requieren parámetros 'camera_name' y 'state'"}), 400
+
+    formatted_trigger = {
+        "camera_name": nombre_camara,
+        "state": estado
+    }
+    # Reinicia las variables globales después de usarlas
+    return jsonify(formatted_trigger), 200
+
+@app.route('/frame', methods=['GET','POST'])
+def send_frame():
+    try:
+        global formatted_time , nombre_camara
+        image_filename = f'{nombre_camara}_{formatted_time}.jpg'
+        image_path = os.path.join(app.config['UPLOAD_FOLDER'], 'Video_2024-06-06_12-58-03.jpg')
+
+        if os.path.exists(image_path):
+            print("El archivo existe")
+            return send_file(image_path, mimetype='image/jpeg')
+        else:
+            print("El archivo no existe")
+            return jsonify({"error": "El archivo no existe"}), 404
+
+    except Exception as e:
+        print(f"Error: {e}")
+        return jsonify({"error": "Error interno del servidor"}), 500
+
+if __name__ == "__main__":
+    # Get args
+    parser = get_args()
+    args = parser.parse_args()
+    # Start the program
+    fall_detector = FallDetector(args)
+
+    # Get the cameras
+    path_cameras = open(args.path_cameras, 'r')
+    for line in path_cameras.readlines():
+        if line.startswith("#") or line == '':
+            continue
+
+        parts = line.strip().split(", ")
+        print("Starting camera {}".format(parts[1]))
+        threading.Thread(target=fall_detector.estimate_pose,
+                         args=(parts[0], parts[1],)).start()
+    app.run(host="172.26.19.127", port=5000)
+
+    # Cerramos los threads
+    fall_detector.close_threads_pool()
